@@ -18,8 +18,8 @@ DB_PATH = Path(os.getenv("DB_PATH", DATA_DIR / "memory.db"))
 LEADS_CSV = Path(os.getenv("LEADS_CSV", DATA_DIR / "leads.csv"))
 BOOKINGS_CSV = Path(os.getenv("BOOKINGS_CSV", DATA_DIR / "bookings.csv"))
 
-LLM_MODEL = os.getenv("LLM_MODEL", "gemini/gemini-2.5-flash")
-LLM_FALLBACK_MODEL = os.getenv("LLM_FALLBACK_MODEL", "gemini/gemini-2.5-flash-lite")
+LLM_MODEL = os.getenv("LLM_MODEL", "gemini/gemini-3.8-flash")
+LLM_FALLBACK_MODEL = os.getenv("LLM_FALLBACK_MODEL", "gemini/gemini-3.5-flash-lite")
 LLM_TEMPERATURE = float(os.getenv("LLM_TEMPERATURE", "0.2"))
 MAX_TOOL_STEPS = int(os.getenv("MAX_TOOL_STEPS", "5"))
 HISTORY_WINDOW = int(os.getenv("HISTORY_WINDOW", "16"))  # messages sent back to the LLM
