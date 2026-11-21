@@ -213,7 +213,7 @@ class Inventory:
     def _load(self) -> pd.DataFrame:
         xl = pd.ExcelFile(self.path)
         sheet = next((s for s in xl.sheet_names if "clean" in s.lower()), xl.sheet_names[0])
-        df = xl.parse(sheet)
+        df = pd.read_excel(self.path, sheet_name=sheet)
         df.columns = [str(c).strip().lower() for c in df.columns]
         if "listing_id" not in df.columns:
             df.insert(0, "listing_id", range(1, len(df) + 1))
