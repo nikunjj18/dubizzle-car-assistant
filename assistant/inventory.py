@@ -198,3 +198,192 @@ def infer_body_type(make: str, model: str, trim: str, title: str) -> str:
 
 def _norm(s: str) -> str:
     return re.sub(r"[^a-z0-9 ]+", " ", str(s).lower().replace("-", " ")).strip()
+
+
+
+# --------------------------------------------------------------------------- #
+# Inventory
+# --------------------------------------------------------------------------- #
+class Inventory:
+    def __init__(self, path: Path):
+        self.path = Path(path)
+        self.df = self._load()
+        self._build_index()
+
+    # ---- loading -------------------------------------------------------- #
+    def _load(self) -> pd.DataFrame:
+        xl = pd.ExcelFile(self.path)
+        sheet = next((s for s in xl.sheet_names if "clean" in s.lower()), xl.sheet_names[0])
+        df = xl.parse(sheet)
+        df.columns = [str(c).strip().lower() for c in df.columns]
+        if "listing_id" not in df.columns:
+            df.insert(0, "listing_id", range(1, len(df) + 1))
+        df = df.rename(columns={"listing_id": "car_id"})
+        df["car_id"] = df["car_id"].astype(int)
+
+        for col in ("make", "model", "trim", "title", "description", "photo_url"):
+            df[col] = df.get(col, "").apply(clean_text) if col != "photo_url" else df.get(col, "").fillna("")
+        df["year"] = pd.to_numeric(df["year"], errors="coerce").fillna(0).astype(int)
+
+        prices, monthlies, kms, wars, warnotes, specs, colors, bodies = ([] for _ in range(8))
+        for r in df.itertuples():
+            p, mo = extract_price(r.title, r.description)
+            prices.append(p); monthlies.append(mo)
+            kms.append(extract_mileage(r.title, r.description))
+            w, wn = extract_warranty(r.title, r.description)
+            wars.append(w); warnotes.append(wn)
+            specs.append(extract_specs(f"{r.title} {r.description}"))
+            colors.append(extract_colors(r.title, r.description))
+            bodies.append(infer_body_type(r.make, r.model, r.trim, r.title))
+        df["price_aed"] = pd.array(prices, dtype="Int64")
+        df["monthly_payment_aed"] = pd.array(monthlies, dtype="Int64")
+        df["mileage_km"] = pd.array(kms, dtype="Int64")
+        df["warranty"] = wars
+        df["warranty_note"] = warnotes
+        df["specs"] = specs
+        df["colors"] = colors
+        df["body_type"] = bodies
+        df["display_name"] = (
+            df["year"].astype(str) + " " + df["make"].str.title() + " " + df["model"].str.title()
+            + df["trim"].apply(lambda t: "" if t in ("", "other", "standard") else " " + t.upper())
+        )
+        df["_norm"] = (df["make"] + " " + df["model"] + " " + df["trim"] + " " + df["title"]).apply(_norm)
+        return df.set_index("car_id", drop=False)
+
+    def _build_index(self) -> None:
+        blob = (
+            self.df["display_name"] + " " + self.df["title"] + " " + self.df["body_type"] + " "
+            + self.df["colors"].apply(" ".join) + " " + self.df["specs"].fillna("") + " " + self.df["description"]
+        )
+        self.vectorizer = TfidfVectorizer(ngram_range=(1, 2), sublinear_tf=True, stop_words="english", min_df=1)
+        self.matrix = self.vectorizer.fit_transform(blob)
+        self._pos = {cid: i for i, cid in enumerate(self.df.index)}
+
+    # ---- serialisation -------------------------------------------------- #
+    @staticmethod
+    def _val(v: Any) -> Any:
+        if v is None or v is pd.NA or (isinstance(v, float) and pd.isna(v)):
+            return None
+        if hasattr(v, "item"):
+            return v.item()
+        return v
+
+    def summary(self, car_id: int) -> dict[str, Any]:
+        r = self.df.loc[car_id]
+        return {
+            "car_id": int(car_id),
+            "name": r.display_name,
+            "title": r.title,
+            "year": int(r.year),
+            "make": r.make.title(),
+            "model": r.model.title(),
+            "trim": r.trim,
+            "body_type": r.body_type,
+            "price_aed": self._val(r.price_aed),
+            "monthly_payment_aed": self._val(r.monthly_payment_aed),
+            "mileage_km": self._val(r.mileage_km),
+            "specs": self._val(r.specs),
+            "colors": list(r.colors),
+            "warranty": self._val(r.warranty),
+            "photo_url": r.photo_url,
+        }
+
+    def details(self, car_id: int) -> Optional[dict[str, Any]]:
+        if car_id not in self.df.index:
+            return None
+        d = self.summary(car_id)
+        r = self.df.loc[car_id]
+        d["warranty_note"] = self._val(r.warranty_note)
+        d["description"] = r.description[:1800]
+        d["field_notes"] = (
+            "price/mileage/warranty/specs/colors/body_type were derived automatically from the listing text; "
+            "null means NOT STATED in the listing. Never guess missing values."
+        )
+        return d
+
+    def exists(self, car_id: int) -> bool:
+        return car_id in self.df.index
+
+    # ---- search --------------------------------------------------------- #
+    def search(
+        self,
+        query: Optional[str] = None,
+        make: Optional[str] = None,
+        model: Optional[str] = None,
+        body_type: Optional[str] = None,
+        color: Optional[str] = None,
+        min_year: Optional[int] = None,
+        max_year: Optional[int] = None,
+        min_price_aed: Optional[float] = None,
+        max_price_aed: Optional[float] = None,
+        max_mileage_km: Optional[int] = None,
+        specs: Optional[str] = None,
+        warranty_only: bool = False,
+        limit: int = 5,
+    ) -> dict[str, Any]:
+        df = self.df
+        mask = pd.Series(True, index=df.index)
+
+        if make:
+            mk = _norm(make)
+            mask &= df["make"].apply(_norm).apply(lambda m: mk in m or m in mk)
+        if model:
+            toks = _norm(model).split()
+            mask &= df["_norm"].apply(lambda s: all(t in s.split() or t in s for t in toks))
+        if body_type and body_type.lower() not in ("any", "unknown"):
+            bt = body_type.lower().replace("crossover", "suv")
+            mask &= df["body_type"] == bt
+        if color:
+            c = color.lower()
+            mask &= df["colors"].apply(lambda cs: c in cs)
+        if min_year:
+            mask &= df["year"] >= int(min_year)
+        if max_year:
+            mask &= df["year"] <= int(max_year)
+        if specs:
+            mask &= df["specs"].fillna("").str.lower() == specs.lower()
+        if warranty_only:
+            mask &= df["warranty"] == True  # noqa: E712
+
+        excluded_unknown_price = excluded_unknown_km = 0
+        if min_price_aed is not None or max_price_aed is not None:
+            has_price = df["price_aed"].notna()
+            excluded_unknown_price = int((mask & ~has_price).sum())
+            mask &= has_price
+            if min_price_aed is not None:
+                mask &= df["price_aed"].fillna(0) >= min_price_aed
+            if max_price_aed is not None:
+                mask &= df["price_aed"].fillna(10**12) <= max_price_aed
+        if max_mileage_km is not None:
+            has_km = df["mileage_km"].notna()
+            excluded_unknown_km = int((mask & ~has_km).sum())
+            mask &= has_km
+            mask &= df["mileage_km"].fillna(10**12) <= max_mileage_km
+
+        ids = list(df.index[mask])
+        if query and query.strip() and ids:
+            sims = linear_kernel(self.vectorizer.transform([query]), self.matrix).ravel()
+            ids.sort(key=lambda cid: sims[self._pos[cid]], reverse=True)
+            # when the query adds nothing (all zero similarity) keep newest first
+            if all(sims[self._pos[c]] == 0 for c in ids):
+                ids.sort(key=lambda cid: -self.df.loc[cid, "year"])
+        else:
+            ids.sort(key=lambda cid: -self.df.loc[cid, "year"])
+
+        limit = max(1, min(int(limit or 5), 8))
+        return {
+            "total_matches": len(ids),
+            "results": [self.summary(c) for c in ids[:limit]],
+            "excluded_because_price_not_listed": excluded_unknown_price,
+            "excluded_because_mileage_not_listed": excluded_unknown_km,
+        }
+
+    def stats(self) -> dict[str, Any]:
+        d = self.df
+        return {
+            "total_listings": int(len(d)),
+            "with_price": int(d["price_aed"].notna().sum()),
+            "with_mileage": int(d["mileage_km"].notna().sum()),
+            "makes": sorted(d["make"].str.title().unique().tolist()),
+            "body_types": d["body_type"].value_counts().to_dict(),
+        }
