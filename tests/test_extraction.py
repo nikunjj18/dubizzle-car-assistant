@@ -32,3 +32,12 @@ def test_specs_colors_body():
     assert extract_colors("2020 White Range Rover", "") == ["white"]
     assert infer_body_type("porsche", "cayenne", "gts", "") == "suv"
     assert infer_body_type("rolls-royce", "dawn", "standard", "") == "convertible"
+
+
+
+def test_mileage_with_space_thousands_separator():
+    assert extract_mileage("", "Mileage: 23 900 kms Exterior: White") == 23900
+
+
+def test_top_speed_is_not_mileage():
+    assert extract_mileage("", "Max Speed 318km/h, 0 to 100 KM/H in 2.5 s") is None

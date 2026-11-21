@@ -48,10 +48,8 @@ _MONTHLY_CONTEXT = re.compile(
     re.I,
 )
 
-
 def _to_int(raw: str) -> int:
-    return int(raw.replace(",", "").split(".")[0])
-
+    return int(re.sub(r"[,\s]", "", raw).split(".")[0])
 
 def extract_price(title: str, desc: str) -> tuple[Optional[int], Optional[int]]:
     """Return (price_aed, monthly_payment_aed). Conservative: None when unsure."""
@@ -92,17 +90,18 @@ def extract_price(title: str, desc: str) -> tuple[Optional[int], Optional[int]]:
 
 
 _KM_AFTER = re.compile(r"\s*(?:km|kms|kilomet|كم)", re.I)
-_NUM_KM = r"(\d{1,3}(?:,\d{3})+|\d{1,7})(?:\.\d+)?"
+_NUM_KM = r"(\d{1,3}(?:[,\s]\d{3})+|\d{1,7})(?:\.\d+)?"
+_NOT_SPEED = r"(?!\s*/\s*h|\s*per\s*h)"  # "318km/h" is a top speed, not mileage
 _KM = [
     re.compile(r"(?:mileage|odometer|kilomet\w*|millage|المسافة)\s*[:\-=]?\s*" + _NUM_KM, re.I),
-    re.compile(r"(\d{1,3}(?:,\d{3})+|\d{2,7})\s*(?:km|kms|kilomet\w*|كم)\b", re.I),
-    re.compile(r"\b(\d{2,3})\s*k\s*(?:km|kms)\b", re.I),
+    re.compile(r"(\d{1,3}(?:[,\s]\d{3})+|\d{2,7})\s*(?:km|kms|kilomet\w*|كم)\b" + _NOT_SPEED, re.I),
+    re.compile(r"\b(\d{2,3})\s*k\s*(?:km|kms)\b" + _NOT_SPEED, re.I),
 ]
 
 
 def extract_mileage(title: str, desc: str) -> Optional[int]:
     text = f"{title} | {desc}"
-    if re.search(r"\b0\s*km\b", text, re.I):
+    if re.search(r"\b0\s*km\b" + _NOT_SPEED, text, re.I):
         return 0
     for pat in _KM:
         m = pat.search(text)
