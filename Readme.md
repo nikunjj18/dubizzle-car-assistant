@@ -32,6 +32,8 @@ An AI car-buying assistant ("Dubi") for the dubizzle cars marketplace. Users cha
 Any user ID works; reuse it next time and Dubi remembers you. The landing page lists what the assistant can do.
 
 ![Sign in page](docs/screenshots/01-sign-in.jpeg)
+<img width="1600" height="683" alt="01-sign-in" src="https://github.com/user-attachments/assets/49eb5ad5-ae09-47e3-808c-da94f1e2c8fb" />
+
 
 ### Assistant: grounded search with car cards
 A natural-language request ("a white SUV under $20,000") is converted to AED, answered only from tool results, and rendered with car cards. The reply also uses long-term memory ("since you've previously looked at Mercedes-Benz...") and flags listings that do not state a price instead of guessing.
