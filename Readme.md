@@ -31,29 +31,36 @@ An AI car-buying assistant ("Dubi") for the dubizzle cars marketplace. Users cha
 ### Sign in
 Any user ID works; reuse it next time and Dubi remembers you. The landing page lists what the assistant can do.
 
-![Sign in page](docs/screenshots/01-sign-in.jpeg)
+
 <img width="1600" height="683" alt="01-sign-in" src="https://github.com/user-attachments/assets/49eb5ad5-ae09-47e3-808c-da94f1e2c8fb" />
 
 
 ### Assistant: grounded search with car cards
 A natural-language request ("a white SUV under $20,000") is converted to AED, answered only from tool results, and rendered with car cards. The reply also uses long-term memory ("since you've previously looked at Mercedes-Benz...") and flags listings that do not state a price instead of guessing.
 
-![Chat with grounded search results and car cards](docs/screenshots/02-chat-search.jpeg)
+
+<img width="1352" height="738" alt="02-chat-search" src="https://github.com/user-attachments/assets/fd45fa57-609c-421e-9c9d-206197fc902d" />
+
 
 ### Long-term memory: returning user
 A new session for the same user ID opens with a personalised greeting, quick-start prompts, and a **What I remember** panel in the sidebar (preferred makes, recent searches).
 
-![Welcome-back greeting and memory panel](docs/screenshots/03-welcome-back-memory.jpeg)
+
+<img width="1600" height="554" alt="03-welcome-back-memory" src="https://github.com/user-attachments/assets/39c8158e-6c11-49a0-91ca-bfa664ea9a11" />
+
 
 ### Explore cars: direct search, no LLM
 Filter by text, make, body type, year and price. This page calls `GET /inventory` directly and shows how many of the 189 listings state a price (36) or mileage (91). Each card has **Details**, **Save** (shortlist) and **Book** actions.
 
-![Explore cars page](docs/screenshots/04-explore-cars.jpeg)
+
+<img width="1600" height="826" alt="04-explore-cars" src="https://github.com/user-attachments/assets/0ed66a8b-93b0-4a4f-a5c1-762d6a421922" />
+
 
 ### Sales view: leads and bookings
 A live view of `data/leads.csv` (scored leads) and `data/bookings.csv` (confirmed viewings), written automatically by the assistant's tool calls.
 
-![Sales view with leads and bookings](docs/screenshots/05-sales-view.jpeg)
+
+<img width="1600" height="717" alt="05-sales-view" src="https://github.com/user-attachments/assets/a1a40568-ceea-40e1-a76c-b56303b6ba44" />
 
 ---
 
