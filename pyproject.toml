@@ -1,7 +1,8 @@
 [project]
 name = "dubizzle-car-assistant"
 version = "1.0.0"
-description = "AI car-buying assistant for the dubizzle cars marketplace"
+description = "AI car-buying assistant for the dubizzle cars marketplace: tool-calling agent, hybrid search, short- and long-term memory, lead capture and viewing bookings."
+readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     "fastapi>=0.110",
@@ -15,6 +16,7 @@ dependencies = [
     "python-dotenv>=1.0",
     "pydantic>=2.6",
     "tzdata>=2024.1",
+    "chromadb>=1.0",
 ]
 
 [dependency-groups]

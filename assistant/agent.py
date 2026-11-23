@@ -13,7 +13,7 @@ from datetime import datetime
 from typing import Any, Optional
 
 from . import guardrails
-from .config import (HISTORY_WINDOW, LLM_FALLBACK_MODEL, LLM_MODEL,LOCAL_TZ, MAX_TOOL_STEPS)
+from .config import (HISTORY_WINDOW, LLM_FALLBACK_MODEL, LLM_MODEL, LLM_TIMEOUT, LOCAL_TZ, MAX_TOOL_STEPS)
 from .inventory import Inventory
 from .memory import MemoryStore
 from .tools import TOOLS, ToolContext, execute_tool
@@ -29,7 +29,9 @@ Help users explore the provided car inventory, answer questions about specific l
 - If a field is null / missing in the tool result, say it is "not stated in the listing" and suggest contacting the seller or booking a viewing. Null warranty means UNKNOWN, not "no warranty".
 - Many listings do not state a price. If the user filters by price, tell them how many more matches have no listed price (`excluded_because_price_not_listed`).
 - Prices are in AED. If the user speaks in USD, the tool converts (1 USD = 3.6725 AED); mention the AED figure.
-- If nothing matches, say so honestly and offer the closest alternative by relaxing ONE filter (then search again).
+- Every search result includes `listing_text`: the start of the seller's own description. Use it together with the structured fields for features, condition and history, paraphrasing it faithfully. If a fact is in neither, call `get_car_details` for the full text before saying it is "not stated in the listing".
+- `results` are cars whose listing CONFIRMS every criterion. `unverified_matches` fit the other criteria but the listing does not state price / mileage / colour (see `not_stated_in_listing`). If `results` is empty or small and `unverified_matches` exist, NEVER just say "nothing found": say no listing confirms all criteria, then show the unverified ones as "possible matches" and name exactly what the listing doesn't state. Never claim an unverified car meets the missing criterion.
+- If there are no results and no unverified matches, say so honestly and offer the closest alternative by relaxing ONE filter (then search again).
 - Mention the listing's car_id so the user can refer to it (e.g. "#12").
 - Present at most 5 cars, numbered in the same order the tool returned them (the user may say "the first one").
 
@@ -128,30 +130,49 @@ class Agent:
         self.memory = memory
 
     # --- LLM call with retry + fallback (free-tier friendly) --- #
+    @staticmethod
+    def _call(litellm: Any, model: str, messages: list[Any]) -> Any:
+        """One model call. Asks for low 'thinking' effort (much faster); retries without it if the model rejects it."""
+        for extra in ({"reasoning_effort": "low"}, {}):
+            started = time.time()
+            try:
+                resp = litellm.completion(model=model, messages=messages, tools=TOOLS, tool_choice="auto",
+                                          timeout=LLM_TIMEOUT, **extra)
+                print(f"[llm] {model} replied in {time.time() - started:.1f}s", flush=True)
+                return resp
+            except litellm.BadRequestError:
+                if not extra:
+                    raise
+        raise RuntimeError("unreachable")
+
     def _llm(self, messages: list[Any]) -> Any:
         import litellm  # imported lazily so the rest of the app works without it (tests, docs)
 
-        litellm.drop_params = True  # silently skip params a given Gemini model doesn't support (e.g. temperature)
+        litellm.drop_params = True          # silently skip params a given Gemini model doesn't support
+        litellm.suppress_debug_info = True  # hide the repeated 'Give Feedback / Get Help' console noise
 
         last_err: Optional[Exception] = None
-        for model, waits in ((LLM_MODEL, (0, 4, 10)), (LLM_FALLBACK_MODEL, (0, 6))):
+        for model, waits in ((LLM_MODEL, (0, 3,8,15)), (LLM_FALLBACK_MODEL, (0,5,10))):
             for wait in waits:
                 if wait:
                     time.sleep(wait)
                 try:
-                                        return litellm.completion(model=model, messages=messages, tools=TOOLS, tool_choice="auto", timeout=45)
+                    return self._call(litellm, model, messages)
                 except litellm.NotFoundError as e:       # model retired / not available for this key
                     last_err = e
                     break                                  # no point retrying this model - try the fallback
                 except (litellm.RateLimitError, litellm.ServiceUnavailableError, litellm.Timeout,
                         litellm.InternalServerError, litellm.APIConnectionError) as e:
                     last_err = e
+                    print(f"[llm] {model} failed: {type(e).__name__} - retrying/falling back", flush=True)
                 except litellm.AuthenticationError as e:
                     raise RuntimeError("Invalid or missing GEMINI_API_KEY - check your .env file.") from e
+                except litellm.BadRequestError as e:
+                    raise RuntimeError(f"Gemini rejected the request: {str(e)[:300]}") from e
         if isinstance(last_err, litellm.NotFoundError):
             raise RuntimeError("The configured Gemini model is not available. Set LLM_MODEL / LLM_FALLBACK_MODEL "
                                "in .env to a model listed in Google AI Studio (keep the 'gemini/' prefix).")
-        raise RuntimeError(f"The AI model is busy right now (rate limit). Please retry in a few seconds. ({type(last_err).__name__})")
+        raise RuntimeError(f"The AI model is busy or slow right now. Please retry in a few seconds. ({type(last_err).__name__})")
 
     def chat(self, user_id: str, session_id: str, text: str) -> dict[str, Any]:
         session = self.memory.get_session(session_id)

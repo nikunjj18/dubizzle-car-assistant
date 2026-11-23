@@ -21,8 +21,16 @@ BOOKINGS_CSV = Path(os.getenv("BOOKINGS_CSV", DATA_DIR / "bookings.csv"))
 LLM_MODEL = os.getenv("LLM_MODEL", "gemini/gemini-3.8-flash")
 LLM_FALLBACK_MODEL = os.getenv("LLM_FALLBACK_MODEL", "gemini/gemini-3.5-flash-lite")
 LLM_TEMPERATURE = float(os.getenv("LLM_TEMPERATURE", "0.2"))
+LLM_TIMEOUT = int(os.getenv("LLM_TIMEOUT", "60"))          # seconds per model call
 MAX_TOOL_STEPS = int(os.getenv("MAX_TOOL_STEPS", "5"))
 HISTORY_WINDOW = int(os.getenv("HISTORY_WINDOW", "16"))  # messages sent back to the LLM
+
+# --- RAG: listings table (SQLite) + vector database (ChromaDB) ---
+LISTINGS_DB = Path(os.getenv("LISTINGS_DB", DATA_DIR / "listings.db"))
+CHROMA_DIR = Path(os.getenv("CHROMA_DIR", DATA_DIR / "chroma"))
+EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "gemini/gemini-embedding-2")
+EMBEDDING_FALLBACK_MODEL = os.getenv("EMBEDDING_FALLBACK_MODEL", "gemini/gemini-embedding-001")
+USE_VECTOR_SEARCH = os.getenv("USE_VECTOR_SEARCH", "true").lower() in ("1", "true", "yes")
 
 API_URL = os.getenv("API_URL", "http://127.0.0.1:8000")
 

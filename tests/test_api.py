@@ -22,7 +22,7 @@ def client(tmp_path, monkeypatch):
 
 def test_health(client):
     body = client.get("/health").json()
-    assert body["status"] == "ok" and body["listings"] == 100
+    assert body["status"] == "ok" and body["listings"] == 189
 
 
 def test_new_then_returning_user_session(client):
@@ -63,7 +63,8 @@ def test_chat_unknown_session_is_404(client):
 def test_inventory_endpoints(client):
     res = client.get("/inventory", params={"q": "luxury convertible", "limit": 2}).json()
     assert len(res["results"]) == 2
-    assert client.get("/inventory/stats").json()["total_listings"] == 100
+    assert len(client.get("/inventory", params={"limit": 30}).json()["results"]) == 30     # the browse page can ask for more than the chatbot's 8
+    assert client.get("/inventory/stats").json()["total_listings"] == 189
     assert client.get("/inventory/8").json()["name"].endswith("Cayenne GTS")
     assert client.get("/inventory/9999").status_code == 404
 
@@ -74,6 +75,9 @@ def test_memory_favorites_and_forget(client):
     assert client.post("/users/sara/favorites", json={"car_id": 9999}).status_code == 404
     mem = client.get("/users/sara/memory").json()
     assert mem["known"] and mem["favorites"][0]["car_id"] == 8
+    assert client.delete("/users/sara/favorites/8").json() == {"removed": True}
+    assert client.get("/users/sara/memory").json()["favorites"] == []
+    client.post("/users/sara/favorites", json={"car_id": 8})
     client.delete("/users/sara/memory")
     assert client.get("/users/sara/memory").json()["known"] is False
 

@@ -92,4 +92,12 @@ def test_execute_tool_never_crashes(ctx):
     assert "error" in execute_tool(ctx, "does_not_exist", {})
     assert "error" in execute_tool(ctx, "search_inventory", "{not json")
     assert "error" in execute_tool(ctx, "get_car_details", {})          # missing required arg
-    assert execute_tool(ctx, "search_inventory", json.dumps({"make": "honda"}))["total_matches"] == 0
+    assert execute_tool(ctx, "search_inventory", json.dumps({"make": "saab"}))["total_matches"] == 0
+
+
+def test_search_with_unstated_fields_returns_possible_matches_and_shows_them(ctx):
+    res = execute_tool(ctx, "search_inventory", {"color": "white", "body_type": "suv", "max_price": 20000, "currency": "USD"})
+    assert res["unverified_matches"]                                                # listings that don't state price/colour
+    expected = [c["car_id"] for c in res["results"]] + [c["car_id"] for c in res["unverified_matches"]]
+    assert ctx.state["shown"] == expected                                           # confirmed first, then possible matches
+    assert set(expected) <= set(ctx.cards)                                          # so the UI can render their cards

@@ -6,3 +6,5 @@ __pycache__/
 data/memory.db
 data/leads.csv
 data/bookings.csv
+data/listings.db
+data/chroma/

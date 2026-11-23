@@ -2,7 +2,11 @@
 Interactive API docs (Swagger): http://127.0.0.1:8000/docs
 """
 from __future__ import annotations
+import warnings
+warnings.filterwarnings("ignore", category=UserWarning, module="pydantic")
 
+import threading
+from contextlib import asynccontextmanager
 from typing import Optional
 
 from fastapi import FastAPI, HTTPException, Query
@@ -10,23 +14,49 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from assistant import leads
 from assistant.agent import Agent, build_greeting
-from assistant.config import DB_PATH, INVENTORY_PATH, LLM_MODEL
+from assistant.config import DB_PATH, INVENTORY_PATH, LLM_MODEL, USE_VECTOR_SEARCH
 from assistant.inventory import Inventory
 from assistant.memory import MemoryStore, slug_user_id
+from assistant.rag import RagIndex
 from assistant.schemas import ChatRequest, ChatResponse, FavoriteRequest, SessionInfo, SessionStart
-
-app = FastAPI(title="dubizzle Car Assistant API", version="1.0.0",
-              description="Chat agent + inventory search + long-term memory + lead capture for dubizzle cars.")
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 inventory = Inventory(INVENTORY_PATH)
 memory = MemoryStore(DB_PATH)
 agent = Agent(inventory, memory)
+rag = RagIndex()
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    """Build/refresh the vector index in the background so the API is usable immediately.
+    Until it is ready, search transparently falls back to keyword retrieval."""
+    if USE_VECTOR_SEARCH:
+        inventory.attach_rag(rag)
+        threading.Thread(target=rag.build, args=(inventory,), daemon=True, name="rag-build").start()
+    yield
+
+
+app = FastAPI(title="dubizzle Car Assistant API", version="1.0.0", lifespan=lifespan,
+              description="Chat agent + RAG inventory search + long-term memory + lead capture for dubizzle cars.")
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 
 @app.get("/health", tags=["system"])
 def health():
-    return {"status": "ok", "model": LLM_MODEL, "listings": len(inventory.df)}
+    return {"status": "ok", "model": LLM_MODEL, "listings": len(inventory.df), "vector_search": rag.ready}
+
+
+@app.get("/rag/status", tags=["system"])
+def rag_status():
+    """Is the vector index (SQLite table + ChromaDB embeddings) built, and with which embedding model?"""
+    return rag.status()
+
+
+@app.post("/rag/rebuild", tags=["system"])
+def rag_rebuild():
+    """Re-run ingestion: rewrite the listings table and embed any new/changed listings."""
+    inventory.attach_rag(rag)
+    return rag.build(inventory)
 
 
 # ----------------------------- sessions & chat ----------------------------- #
@@ -61,9 +91,10 @@ def search_inventory(q: Optional[str] = None, make: Optional[str] = None, model:
                      min_year: Optional[int] = None, max_year: Optional[int] = None,
                      max_price_aed: Optional[float] = None, max_mileage_km: Optional[int] = None,
                      limit: int = Query(10, ge=1, le=8 * 10)):
-    """Direct (non-LLM) inventory search - same engine the agent's tool uses."""
+    """Direct (non-LLM) inventory search - same engine the agent's tool uses (filters + vector + keyword)."""
     return inventory.search(query=q, make=make, model=model, body_type=body_type, color=color, min_year=min_year,
-                            max_year=max_year, max_price_aed=max_price_aed, max_mileage_km=max_mileage_km, limit=limit)
+                            max_year=max_year, max_price_aed=max_price_aed, max_mileage_km=max_mileage_km, limit=limit,
+                            max_limit=80)
 
 
 @app.get("/inventory/stats", tags=["inventory"])
@@ -96,6 +127,12 @@ def add_favorite(user_id: str, body: FavoriteRequest):
         raise HTTPException(404, "Listing not found")
     memory.add_favorite(slug_user_id(user_id), body.car_id, inventory.df.loc[body.car_id, "display_name"], body.reason)
     return {"saved": True}
+
+
+@app.delete("/users/{user_id}/favorites/{car_id}", tags=["memory"])
+def remove_favorite(user_id: str, car_id: int):
+    memory.remove_favorite(slug_user_id(user_id), car_id)
+    return {"removed": True}
 
 
 @app.delete("/users/{user_id}/memory", tags=["memory"])

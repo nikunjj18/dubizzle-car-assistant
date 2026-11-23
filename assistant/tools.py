@@ -37,7 +37,7 @@ TOOLS: list[dict[str, Any]] = [
             "query": {"type": "string", "description": "Free-text keywords/semantics, e.g. 'luxury convertible leather seats'"},
             "make": {"type": "string", "description": "e.g. 'Mercedes', 'Toyota', 'Land Rover'"},
             "model": {"type": "string", "description": "e.g. 'Cayenne', 'Pajero', 'C-Class'"},
-            "body_type": {"type": "string", "enum": ["suv", "sedan", "coupe", "convertible", "hatchback", "pickup", "van"]},
+            "body_type": {"type": "string", "enum": ["suv", "sedan", "coupe", "convertible", "hatchback", "wagon", "pickup", "van"]},
             "color": {"type": "string", "description": "white, black, silver, grey, red, blue, green, brown, gold, beige, orange, yellow"},
             "min_year": {"type": "integer"}, "max_year": {"type": "integer"},
             "min_price": {"type": "number"}, "max_price": {"type": "number"},
@@ -134,14 +134,20 @@ def search_inventory(ctx: ToolContext, **a: Any) -> dict[str, Any]:
         warranty_only=bool(a.get("warranty_only")), limit=a.get("limit", 5),
     )
     ids = [c["car_id"] for c in res["results"]]
-    ctx.state["shown"] = ids                      # numbering the user sees: "the first one" = shown[0]
-    ctx.state["focus"] = ids[0] if len(ids) == 1 else ctx.state.get("focus")
+    shown = list(ids)
     for c in res["results"]:
         ctx.cards[c["car_id"]] = c
+    if len(ids) < 3:                                   # few confirmed matches: also show the 'possible' ones
+        for c in res["unverified_matches"]:
+            shown.append(c["car_id"])
+            ctx.cards[c["car_id"]] = c
+    ctx.state["shown"] = shown                         # numbering the user sees: "the first one" = shown[0]
+    ctx.state["focus"] = shown[0] if len(shown) == 1 else ctx.state.get("focus")
     ctx.memory.log_event(ctx.user_id, ctx.session_id, "search",
                          {"criteria": _criteria_text(a), "matches": res["total_matches"]})
-    res["note"] = ("Prices/mileage are only available where the listing text states them. "
-                   "Present results in the order returned so users can say 'the first one'.")
+    res["note"] = ("`results` CONFIRM every criterion. `unverified_matches` fit the other criteria but their listing does not "
+                   "state the fields in `not_stated_in_listing` - present them as 'possible matches', never as confirmed. "
+                   "Present cars in the order returned (results first) so users can say 'the first one'.")
     return res
 
 
